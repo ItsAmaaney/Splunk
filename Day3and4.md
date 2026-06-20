@@ -68,3 +68,116 @@ sourcetype=access_* status=404 | stats count by clientip | sort -count | head 5
 
 - Always double-check totals before reporting — a typo'd number can send someone investigating the wrong incident
 - Example: "35,532 events" vs actual "39,532 events" — small typo, but misleading in a real report
+
+# Day4
+## 🔧 SPL Commands Learned
+ 
+### 1. `stats count by`
+Groups and counts events by a field.
+```spl
+sourcetype=access_* | stats count by clientip | sort -count
+```
+**Use:** See which IPs are making the most requests → brute force detection.
+ 
+---
+ 
+### 2. `eval` — Field Transformation
+Creates or transforms a field on the fly.
+ 
+**Syntax:**
+```spl
+| eval new_field = expression
+```
+ 
+**Example — Convert bytes to kilobytes:**
+```spl
+| eval kilobytes = bytes / 1024
+```
+ 
+**With `round()` for clean decimals:**
+```spl
+| eval kilobytes = round(bytes / 1024, 2)
+```
+ 
+---
+ 
+### 3. `stats sum()` — Aggregate Per Group
+Adds up a field's values per group (e.g., per IP).
+ 
+**Why not just `eval`?**  
+`eval` works row by row. One IP can make 500 requests — each row has its own `kilobytes`.  
+`sum()` collapses all rows for the same IP into **one total**.
+ 
+```spl
+| stats sum(kilobytes) as total_kb by clientip
+```
+ 
+---
+ 
+### 4. `where` — Filter Results
+Filters rows after aggregation (like SQL's `HAVING`).
+ 
+```spl
+| where total_kb > 1000
+```
+ 
+---
+ 
+### 5. `sort` — Order Results
+`-fieldname` = descending (highest first)  
+`+fieldname` = ascending (lowest first)
+ 
+```spl
+| sort -total_kb
+```
+ 
+---
+ 
+### 6. `rename` — Rename a Field
+```spl
+| rename clientip as Source_IP
+```
+ 
+---
+ 
+### 7. `table` — Display Specific Fields Only
+```spl
+| table clientip, uri_path, kilobytes
+```
+ 
+---
+ 
+## 🚨 Real Detection Query — Data Exfiltration by IP
+ 
+**Goal:** Find IPs that transferred the most data — potential exfiltration.
+ 
+```spl
+sourcetype=access_* 
+| eval kilobytes = round(bytes / 1024, 2) | stats sum(kilobytes) as total_kb by clientip | where total_kb > 1000 | sort -total_kb | rename clientip as Source_IP
+```
+ 
+**What it does step by step:**
+ 
+| Step | Command | Purpose |
+|------|---------|---------|
+| 1 | `eval kilobytes = round(bytes/1024, 2)` | Convert bytes → KB per request |
+| 2 | `stats sum(kilobytes) as total_kb by clientip` | Total KB transferred per IP |
+| 3 | `where total_kb > 1000` | Keep only high-volume IPs |
+| 4 | `sort -total_kb` | Highest first |
+| 5 | `rename clientip as Source_IP` | Clean field naming |
+ 
+**SOC Context:** High `total_kb` from a single IP = 🚩 potential data exfiltration. Pivot to check what `uri_path` they were hitting and whether the IP is internal or external.
+ 
+---
+ 
+## ⚠️ Common Mistakes
+ 
+| Mistake | Fix |
+|--------|-----|
+| `sum (kilobytes)` with a space | `sum(kilobytes)` — no space |
+| Using `where` before `stats` | `where` filters **after** aggregation |
+| Forgetting `as` in stats | Always name your output field: `sum(x) as total` |
+ 
+---
+ 
+*Training ongoing — updated as new concepts are covered.*
