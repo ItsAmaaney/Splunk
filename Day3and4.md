@@ -144,6 +144,72 @@ Filters rows after aggregation (like SQL's `HAVING`).
 ```spl
 | table clientip, uri_path, kilobytes
 ```
+### 7. `table` — Display Specific Fields Only
+```spl
+| table clientip, uri_path, kilobytes
+```
+ 
+---
+ 
+### 8. `_time` — Splunk's Internal Timestamp Field
+Every event has a `_time` field. Use it in `table` to see exact request timestamps.
+ 
+```spl
+sourcetype=access_* clientip=87.194.216.51
+| table _time, status, uri_path, bytes
+```
+ 
+> ⚠️ Always use `_time` not `time` — the underscore is required.
+ 
+---
+ 
+### 9. `earliest` / `latest` — Time Range Filters
+Filter how far back your search goes. Goes right after the sourcetype.
+ 
+| Syntax | Meaning |
+|--------|---------|
+| `earliest=-24h` | Last 24 hours |
+| `earliest=-7d` | Last 7 days |
+| `earliest=-30d` | Last 30 days |
+| `earliest=-1h latest=now` | Last 1 hour only |
+ 
+```spl
+sourcetype=access_* earliest=-30d clientip=87.194.216.51
+| stats count by status
+```
+ 
+---
+ 
+### 10. `timechart` — Activity Over Time
+Groups events by **time buckets** instead of field values. Best viewed in the Visualization tab.
+ 
+**Syntax:**
+```spl
+| timechart span=<time_unit> count by <field>
+```
+ 
+**`span` options:**
+ 
+| span | Bucket size |
+|------|-------------|
+| `span=1h` | One bar per hour |
+| `span=1d` | One bar per day |
+| `span=30m` | One bar per 30 minutes |
+ 
+**Example — Activity per day by status code:**
+```spl
+sourcetype=access_* clientip=87.194.216.51
+| timechart span=1d count by status
+```
+ 
+**`stats` vs `timechart`:**
+ 
+| Command | Groups by |
+|---------|-----------|
+| `stats count by clientip` | A field value |
+| `timechart span=1d count by status` | Time |
+ 
+> **SOC Use:** Spot attack spikes, confirm persistent vs one-time threats, show timeline to management.
  
 ---
  
@@ -179,5 +245,69 @@ sourcetype=access_*
 | Forgetting `as` in stats | Always name your output field: `sum(x) as total` |
  
 ---
+## 🔍 Real Investigation — Carding Attack (Full Walkthrough)
  
-*Training ongoing — updated as new concepts are covered.*
+**Scenario:** Identify a suspicious IP and determine if it's malicious.
+ 
+### Step 1 — Find high data transfer IPs
+```spl
+sourcetype=access_*
+| eval kilobytes = round(bytes / 1024, 2)
+| stats sum(kilobytes) as total_kb by clientip
+| where total_kb > 1000
+| sort -total_kb
+| rename clientip as Source_IP
+```
+ 
+### Step 2 — Pivot on top IP, check URIs
+```spl
+sourcetype=access_* clientip=87.194.216.51
+| stats count by uri_path
+| sort -count
+```
+ 
+### Step 3 — Check status codes
+```spl
+sourcetype=access_* clientip=87.194.216.51
+| stats count by status
+| sort -count
+```
+ 
+### Step 4 — Confirm it's recent
+```spl
+sourcetype=access_* earliest=-30d clientip=87.194.216.51
+| stats count by status
+```
+ 
+### Step 5 — Check exact timestamps
+```spl
+sourcetype=access_* clientip=87.194.216.51
+| table _time, status, uri_path, bytes
+```
+ 
+### Step 6 — Visualize attack timeline
+```spl
+sourcetype=access_* clientip=87.194.216.51
+| timechart span=1d count by status
+```
+ 
+### Verdict on `87.194.216.51`
+ 
+| Signal | Finding |
+|--------|---------|
+| Total data transferred | 10,701 KB |
+| Error responses | 700+ across multiple codes |
+| Session behavior | Multiple JSESSIONID values, same IP |
+| URIs hit | /cart/do?action=purchase, /cart/success.do |
+| Attack duration | 8+ consecutive days |
+| Bot confirmed | 5,180 requests in under 10 seconds |
+ 
+**Attack Type: Carding Attack (Credit Card Fraud)**
+- Attacker used stolen credit cards
+- Bot automated purchases with fresh sessions per card
+- Different JSESSIONID = different stolen card identity
+- /cart/success.do hits = successful fraudulent purchases
+**SOC Action:** Block IP, escalate to fraud team with evidence.
+  
+ 
+
