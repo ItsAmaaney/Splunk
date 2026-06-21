@@ -143,11 +143,7 @@ Filters rows after aggregation (like SQL's `HAVING`).
 ### 7. `table` — Display Specific Fields Only
 ```spl
 | table clientip, uri_path, kilobytes
-```
-### 7. `table` — Display Specific Fields Only
-```spl
-| table clientip, uri_path, kilobytes
-```
+
  
 ---
  
